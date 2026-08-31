@@ -1,7 +1,7 @@
 version: 2026.232.0520
 immich:
     candy:
-        version: 2026.144.1531
+        version: 2026.243.0100
         description: |
             Immich self-hosted photo and video management server on port 2283.
             Builds the Immich Node server from source with pnpm into
@@ -13,11 +13,11 @@ immich:
             installed wrappers, the image-codec toolchain, the seeded init SQL, and a
             live /api/server/ping response.
         require:
-            - '@github.com/opencharly/layer-supervisord:v2026.235.2056'
-            - '@github.com/opencharly/layer-nodejs:v2026.235.2056'
-            - '@github.com/opencharly/pod-postgresql:v2026.237.458'
-            - '@github.com/opencharly/pod-redis:v2026.237.458'
-            - '@github.com/opencharly/layer-ffmpeg:v2026.235.2057'
+            - '@github.com/opencharly/layer-supervisord:v2026.240.0121'
+            - '@github.com/opencharly/layer-nodejs:v2026.239.1624'
+            - '@github.com/opencharly/pod-postgresql:v2026.239.1627'
+            - '@github.com/opencharly/pod-redis:v2026.239.1639'
+            - '@github.com/opencharly/layer-ffmpeg:v2026.239.1614'
         env:
             IMMICH_VERSION: "v2.7.5"
             IMMICH_HOST: "0.0.0.0"
