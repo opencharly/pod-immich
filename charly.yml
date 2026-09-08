@@ -15,7 +15,7 @@ immich:
         require:
             - '@github.com/opencharly/layer-supervisord:v2026.240.0121'
             - '@github.com/opencharly/layer-nodejs:v2026.239.1624'
-            - '@github.com/opencharly/pod-postgresql:v2026.239.1627'
+            - '@github.com/opencharly/pod-postgresql:v2026.247.1304'
             - '@github.com/opencharly/pod-redis:v2026.239.1639'
             - '@github.com/opencharly/layer-ffmpeg:v2026.239.1614'
         env:
