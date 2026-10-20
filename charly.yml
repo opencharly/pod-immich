@@ -60,8 +60,10 @@ immich:
         # env_accept: [IMMICH_API_URL]. Plan §4.3. The templated value resolves to
         # e.g. "http://charly-immich-ml:2283/api" at charly config time for the base instance,
         # and to the instance-scoped container name for instances (e.g.
-        # "http://charly-immich-ml-test:2283/api" for immich-ml -i test). Consumers like
-        # openwebui and hermes already declare this env var in their env_accept.
+        # "http://charly-immich-ml-test:2283/api" for immich-ml -i test). The consumer is
+        # hermes, which declares this env var in its env_accept. openwebui deliberately does
+        # NOT: Open Web UI has no immich integration, so it accepted this value without ever
+        # reading it — dead declarations, removed in opencharly/pod-openwebui#15.
         env_provide:
             IMMICH_API_URL: "http://{{.ContainerName}}:2283/api"
         env_accept:
@@ -72,8 +74,10 @@ immich:
         #
         #   charly secrets set charly/api-key/immich <key>
         #
-        # openwebui and hermes declare the same secret_accept entry with the same
-        # key path, so one `charly secrets set` populates all three consumers.
+        # hermes declares the same secret_accept entry with the same key path, so one
+        # `charly secrets set` populates both consumers. (openwebui no longer does: it has
+        # no immich integration, and the unconsumed entry was removed in
+        # opencharly/pod-openwebui#15.)
         secret_accept:
             - name: IMMICH_API_KEY
               description: "Immich API key for programmatic access (generated in the Immich admin UI after first-run)"
