@@ -6,24 +6,33 @@ photo and video management server.
 
 ## What it provides
 
-Builds the Immich Node server from source with pnpm into `/opt/immich/server`,
-installs a PostgreSQL-aware startup wrapper and an idempotent DB-migration
-wrapper, and seeds Postgres with the `vector` / `vchord` / `earthdistance`
-extensions before serving the photo+video API on port `2283`. Library, cache,
-import, and external media live under `~/.immich`.
+Builds Immich **v3.4.1** from source into one image: the Node server into
+`/opt/immich/server`, the web UI into `/build/www`, the plugin-core WASM plugin and
+the reverse-geocoding geodata into `/build/`, plus the Python machine-learning
+virtualenv (ONNX Runtime with the CUDA execution provider) that serves face
+recognition, smart search and OCR on port `3003`. It installs a PostgreSQL-aware
+startup wrapper and an idempotent DB-migration wrapper, and seeds Postgres with the
+`vector` / `vchord` / `cube` / `earthdistance` extensions before serving the
+photo+video API on port `2283`. Library, cache, import, external media and the ML
+model cache live under `~/.immich`.
+
+The machine-learning backend is part of THIS candy. The former sibling repo
+`pod-immich-ml` (the separate `immich-ml` candy/image) is retired: its functionality
+lives here.
 
 | Property | Value |
 |---|---|
-| Services | `immich-db-init` (`immich-db-migrate.sh`, priority 15), `immich-server` (`immich-server-start.sh`, priority 30) |
-| Port | `2283` (web UI + API) |
+| Services | `immich-db-init` (`immich-db-migrate.sh`, priority 15), `immich-server` (`immich-server-start.sh`, priority 30), `immich-ml` (`python -m immich_ml`, priority 40) |
+| Ports | `2283` (web UI + API), `3003` (machine learning) |
 | Route | `immich.localhost` |
 | Requires | `layer-supervisord`, `layer-nodejs`, `pod-postgresql`, `pod-redis`, `layer-ffmpeg` |
-| Volumes | `library` `~/.immich/library`, `cache` `~/.immich/cache`, `import` `~/.immich/import`, `external` `~/.immich/external` |
+| Volumes | `library` `~/.immich/library`, `cache` `~/.immich/cache`, `import` `~/.immich/import`, `external` `~/.immich/external`, `models` `~/.immich/models` |
 | env_provide | `IMMICH_API_URL` (`http://{{.ContainerName}}:2283/api`) |
 | secret_accept | `IMMICH_API_KEY` (`charly/api-key/immich`) |
 
 The `immich-db-init` service is `restart: no` — it migrates and seeds once per
-start; `immich-server` waits on `pg_isready` then execs the built server.
+start; `immich-server` waits on `pg_isready` then execs the built server
+(`node /opt/immich/server/dist/main.js` — the ESM entry needs its extension).
 
 ## How to use it
 
@@ -50,9 +59,9 @@ charly secrets set charly/api-key/immich <key>
 
 ## Related
 
-- Owning skill: `/charly-immich:immich` — the box properties, the candy stack,
-  the volumes, and verification.
-- `/charly-immich:immich-ml` — adds CUDA ML for face recognition and smart search.
+- Owning skills: `/charly-immich:immich-layer` — this candy (build recipe, env,
+  services, volumes); `/charly-immich:immich` — the image that composes it
+  (`distro-cachyos/box/immich`, CachyOS GPU base) and its verification.
 - `/charly-infrastructure:postgresql` / `/charly-infrastructure:vectorchord` /
   `/charly-infrastructure:redis` — the backing data services.
 - [`opencharly/charly`](https://github.com/opencharly/charly) — the charly CLI and image builder

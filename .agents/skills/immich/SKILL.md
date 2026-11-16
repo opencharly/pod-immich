@@ -1,42 +1,38 @@
 ---
 name: immich
-description: 'Immich photo management server on port 2283. Includes PostgreSQL, Redis,
-
-  and non-free codec support via RPM Fusion. CPU-only (no ML).
+description: 'Immich photo and video management on port 2283 with in-image CUDA machine
+  learning on port 3003, deployed on the CachyOS GPU base.
 
   MUST be invoked before building, deploying, configuring, or troubleshooting the
-  immich box.'
+  immich image.'
 ---
 
 # immich
 
-Self-hosted photo and video management server with full codec support.
+Self-hosted photo and video management server — ONE image carrying the web UI, the API,
+and the machine-learning backend (face recognition, smart search, OCR).
 
 ## Box Properties
 
 | Property | Value |
 |----------|-------|
-| Base | fedora-nonfree |
-| Candies | agent-forwarding, nodejs, supervisord, postgresql, vectorchord, redis, immich |
+| Image file | `distro-cachyos/box/immich/charly.yml` |
+| Base | `nvidia` — the CachyOS GPU base (`cachyos` + agent-forwarding + `nvidia` + `cuda`) |
+| Candies | agent-forwarding, nodejs, supervisord, postgresql, vectorchord, redis, immich, dbus |
+| Build formats | `pac`, `aur` (pgvector is AUR-only on Arch) |
 | Platforms | linux/amd64 |
-| Ports | 2283 |
+| Ports | 2283 (web UI + API), 3003 (machine learning) |
 | Registry | ghcr.io/opencharly |
 
-## Full Candy Stack
-
-1. `fedora` → `fedora-nonfree` (RPM Fusion for codecs)
-2. `pixi` → `python` → `supervisord` (transitive)
-3. `nodejs` — Node.js runtime + pnpm
-4. `postgresql` — database on :5432
-5. `vectorchord` — VectorChord vector similarity extension
-6. `redis` — cache on :6379
-7. `immich` — Immich server on :2283, library + cache + import + external volumes
+The ML backend runs in this image as the supervised `immich-ml` service (priority 40) on
+port 3003, and the server reaches it on `http://127.0.0.1:3003`.
 
 ## Ports
 
 | Port | Service | Protocol |
 |------|---------|----------|
 | 2283 | Immich web UI + API | HTTP |
+| 3003 | Machine-learning inference API (`/ping`) | HTTP |
 
 ## Volumes
 
@@ -46,6 +42,7 @@ Self-hosted photo and video management server with full codec support.
 | cache | ~/.immich/cache | Thumbnail cache |
 | import | ~/.immich/import | Photo import directory |
 | external | ~/.immich/external | External library (no-copy) |
+| models | ~/.immich/models | Downloaded ML models (CLIP, face, OCR) |
 | pgdata | ~/.postgresql | PostgreSQL data |
 
 ## Quick Start
@@ -57,31 +54,40 @@ charly start immich
 # Open http://localhost:2283
 ```
 
+## GPU
+
+The image is built on the CachyOS GPU base and its ML backend ships ONNX Runtime's
+CUDA execution provider. GPU access is not declared per image: the deploy injects
+`--device nvidia.com/gpu=all` automatically when the host has an NVIDIA device, so the
+same image runs on CPU-only hosts with the ML backend falling back to CPU.
+
 ## Key Candies
 
-- `/charly-immich:immich` — Immich server, db init, library/cache volumes
-- `/charly-infrastructure:postgresql` — database backend
-- `/charly-infrastructure:vectorchord` — VectorChord for smart search
-- `/charly-infrastructure:redis` — session/cache backend
-- `/charly-distros:rpmfusion` — non-free codec support (via fedora-nonfree base)
-
-## Related Boxes
-
-- `/charly-distros:fedora-nonfree` — parent base
-- `/charly-immich:immich-ml` — adds CUDA ML for face recognition and smart search
+- `pod-immich` — Immich server, web UI, ML backend, db init, all five volumes
+- `pod-postgresql` — database backend
+- `layer-vectorchord` — VectorChord for smart search
+- `pod-redis` — session/cache backend
+- `layer-ffmpeg` — non-free codec support
+- `layer-nvidia` / `layer-cuda` — the GPU stack (via the `nvidia` base)
 
 ## Verification
 
-After `charly start`:
-- `charly status immich` — container running
-- `charly service status immich` — all services RUNNING
-- `curl -s -o /dev/null -w '%{http_code}' http://localhost:2283` — Immich HTTP returns 200
+- `charly check run check-cachyos-immich-pod` — the disposable R10 bed for this image
+- After `charly start immich`:
+  - `charly status immich` — container running
+  - `charly service status immich` — `immich-db-init`, `immich-server`, `immich-ml` RUNNING
+  - `curl -s http://localhost:2283/api/server/ping` — `{"res":"pong"}`
+  - `curl -s http://localhost:3003/ping` — `pong`
 
 ## When to Use This Skill
 
-**MUST be invoked** when the task involves the immich box, photo management, or the CPU-only Immich setup. Invoke this skill BEFORE reading source code or launching Explore agents.
+**MUST be invoked** when the task involves the immich image, Immich photo management,
+face recognition, or smart search. Invoke this skill BEFORE reading source code or
+launching Explore agents.
 
 ## Related
 
-- `/charly-image:image` — image family umbrella (`candy:` image entries — those carrying `base:`/`from:` — in `charly.yml`, build/validate/inspect/list)
+- `/charly-immich:immich-layer` — the candy itself (build recipe, env, services)
+- `/charly-image:image` — image family umbrella (composition, build/validate/inspect)
+- `/charly-distros:cachyos` — the CachyOS base family and the `nvidia` GPU base
 - `/charly-build:build` — the embedded build vocabulary (distros, builders, init-systems)

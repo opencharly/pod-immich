@@ -1,58 +1,95 @@
 ---
 name: immich-layer
-description: 'Immich photo management server on port 2283 with PostgreSQL and Redis.
+description: 'Immich photo and video management server on port 2283 with its ML backend
+  on port 3003, PostgreSQL, VectorChord and Redis.
 
-  Use when working with Immich, photo management, or media library services.'
+  Use when working with Immich, photo management, media library services, face
+  recognition or smart search.'
 ---
 
-# immich -- Self-hosted photo management server
+# immich -- Self-hosted photo management server (server + web + ML in one candy)
 
 ## Candy Properties
 
 | Property | Value |
 |----------|-------|
 | Dependencies | `supervisord`, `nodejs`, `postgresql`, `redis`, `ffmpeg` |
-| Ports | 2283 |
-| Volumes | `library` -> `~/.immich/library`, `cache` -> `~/.immich/cache`, `import` -> `~/.immich/import`, `external` -> `~/.immich/external` |
-| Service | `immich-db-init` (oneshot, priority 15), `immich-server` (priority 30) |
+| Ports | 2283 (server + web UI), 3003 (machine learning) |
+| Volumes | `library` -> `~/.immich/library`, `cache` -> `~/.immich/cache`, `import` -> `~/.immich/import`, `external` -> `~/.immich/external`, `models` -> `~/.immich/models` |
+| Service | `immich-db-init` (oneshot, priority 15), `immich-server` (priority 30), `immich-ml` (priority 40) |
 | Route | `immich.localhost:2283` |
-| Install files | `task:` |
 
 ## Environment Variables
 
 | Variable | Value |
 |----------|-------|
-| `IMMICH_VERSION` | `v2.7.5` |
+| `IMMICH_VERSION` (var) | `v3.4.1` |
+| `IMMICH_SOURCE_REF` | `v3.4.1` (what `start.sh`-style wrappers log) |
 | `IMMICH_HOST` / `IMMICH_PORT` | `0.0.0.0` / `2283` |
 | `IMMICH_MEDIA_LOCATION` | `~/.immich/library` |
-| `IMMICH_MACHINE_LEARNING_ENABLED` | `false` |
+| `IMMICH_MACHINE_LEARNING_ENABLED` | `true` |
+| `IMMICH_MACHINE_LEARNING_URL` | `http://127.0.0.1:3003` |
+| `MACHINE_LEARNING_HOST` / `_PORT` / `_WORKERS` / `_WORKER_TIMEOUT` | `0.0.0.0` / `3003` / `1` / `120` |
+| `TRANSFORMERS_CACHE` | `~/.immich/models` |
 | `DB_HOSTNAME` / `DB_DATABASE_NAME` | `127.0.0.1` / `immich` |
 | `DB_USERNAME` / `DB_PASSWORD` | `immich` / `immich` |
 | `REDIS_HOSTNAME` / `REDIS_PORT` | `127.0.0.1` / `6379` |
 | `NODE_ENV` | `production` |
 
+`IMMICH_MACHINE_LEARNING_URL` is not optional in this image: Immich's own default
+(`http://immich-machine-learning:3003`) names the upstream docker-compose service and
+does not resolve here, where the ML backend is a supervised service in the SAME image.
+
 ## Packages
 
 The candy is multi-distro — image libraries are declared per distro:
 
-- RPM: `vips`, `vips-devel`, `perl-Image-ExifTool`, `libheif`, `LibRaw`, `gcc-c++`, `make`, `unzip`
-- PAC: `libvips` (no separate `-devel` split — headers ship in the same package), `libheif`, `libraw`, `perl-image-exiftool`, `gcc` (includes `g++`), `make`, `unzip`
+- RPM: `vips`, `vips-devel`, `perl-Image-ExifTool`, `libheif`, `LibRaw`, `gcc-c++`, `make`, `unzip`, `curl`, `python3`
+- PAC: `libvips` (no separate `-devel` split — headers ship in the same package), `libheif`, `libraw`, `perl-image-exiftool`, `gcc` (includes `g++`), `make`, `unzip`, `curl`, `python`
 
 **Note:** FFmpeg is provided via the `ffmpeg` dependency candy rather than installed directly.
 
-## Build Process (tasks:)
+## Build Process (v3.4.1 from-source recipe)
 
-The root-phase tasks download Immich source, builds the server, web UI, and core plugin:
+Every version below is what Immich v3.4.1 itself pins (root `package.json`
+`packageManager`, `.nvmrc`, `mise.toml`): pnpm `12.15.0`, extism-js `v1.7.0`
+(js-pdk), binaryen `version_124`, uv `0.8.15`, and the ML venv's Python `3.13`.
 
-1. **Server** — `pnpm install --frozen-lockfile && pnpm --filter immich build && pnpm --filter immich deploy --prod /opt/immich/server`
-2. **Geodata** — Downloads reverse geocoding data from geonames.org
-3. **Web UI** — `pnpm --filter @immich/sdk --filter immich-web build`
-4. **Core Plugin** — Installs `extism-js` (v1.6.0) and `binaryen` (v124), then `pnpm run build` in `plugins/` to compile TypeScript → WASM (`plugin.wasm`). Build tools are cleaned up after compilation.
-5. **PostgreSQL extensions** — Init SQL at `/docker-entrypoint-initdb.d/01-immich-extensions.sql` creates `vector`, `vchord CASCADE`, and `earthdistance CASCADE` extensions (runs during first `initdb` only)
-6. **Database migration script** — `/usr/local/bin/immich-db-migrate.sh` runs on every container start via the `immich-db-init` supervisord service. Waits for PostgreSQL, then idempotently ensures `vector`, `earthdistance`, and `vchord` (if available) extensions exist. Handles both fresh installs and upgrades of existing databases.
-7. **Server startup wrapper** — `/usr/local/bin/immich-server-start.sh` waits for PostgreSQL to be ready before starting the Node.js process. Eliminates the crash-restart loop that previously occurred when supervisord started `immich-server` before PostgreSQL finished recovery.
+1. **Toolchain** — pnpm 12.15.0 (a tarball in the 12.x line, not the 10.x single
+   binary) into `/opt/immich/pnpm`; uv from its release tarball. The image's own
+   pnpm from `layer-nodejs` is deliberately NOT replaced.
+2. **Workspace packages** — `@immich/sdk` → `@immich/plugin-sdk` → server; the server
+   has a `workspace:*` dependency on `@immich/plugin-sdk`, so the order matters.
+3. **Core plugin (WASM)** — `packages/plugin-core` (moved from `plugins/` in v3),
+   compiled with extism-js into `/build/plugins/immich-plugin-core/{dist,manifest.json}`.
+4. **Server** — `pnpm --filter immich build`, then
+   `pnpm --filter immich --prod --no-optional deploy /opt/immich/server`, then the
+   **mandatory sharp rebuild** against the system libvips
+   (`SHARP_FORCE_GLOBAL_LIBVIPS=true … --dir /opt/immich/server/node_modules/sharp exec npm run build`).
+5. **Web UI** — `pnpm --filter immich-web build` → `/build/www`; the build needs the
+   `i18n/` tree present (`web/package.json` maps `#i18n/*` to `../i18n/*`).
+6. **Geodata** — `admin1CodesASCII.txt`, `admin2Codes.txt`, `countryInfo.txt`
+   (NEW in v3 and required), `cities500.zip` → `cities500.txt`, and the Natural Earth
+   country outline pinned to tag `v5.1.2`. `geodata-date.txt` is read unguarded at boot.
+   `/build/build-lock.json` ships as a valid empty `{"sources":[],"packages":[]}` — the
+   server only warns when the file is absent.
+7. **Machine learning** — `uv venv --python 3.13` then
+   `uv sync --frozen --no-dev --no-editable --active --link-mode copy --extra cuda --extra cuda-libs`
+   in `machine-learning/`, installed into `/opt/immich/machine-learning/.venv`. The
+   `cuda-libs` extra makes the venv self-contained with CUDA 12 runtime wheels, which is
+   what an Arch/CachyOS base needs (its system CUDA is 13.x). ONNX Runtime's
+   `CUDAExecutionProvider` is a build-scope check, so a regression in the GPU stack turns
+   red.
+8. **PostgreSQL extensions** — `/docker-entrypoint-initdb.d/01-immich-extensions.sql`
+   seeds `vector`, `vchord CASCADE`, `cube` and `earthdistance CASCADE` on first
+   `initdb`; `/usr/local/bin/immich-db-migrate.sh` re-ensures them idempotently on every
+   start via the `immich-db-init` service.
+9. **Server startup wrapper** — `/usr/local/bin/immich-server-start.sh` waits for
+   `pg_isready`, then execs `node /opt/immich/server/dist/main.js`. The `.js` extension
+   is required: `server/package.json` is `"type": "module"`.
 
-All pnpm commands use `npm_config_cache=/tmp/npm-root-cache` to avoid creating root-owned files in the container user's `~/.cache` directory.
+All pnpm steps export `npm_config_cache` / `npm_config_store_dir` under `/tmp` so a root
+build leaves no root-owned files in the container user's cache.
 
 ## Secrets
 
@@ -71,18 +108,19 @@ immich:
 
 ## Used In Boxes
 
-- `/charly-immich:immich`
-- `/charly-immich:immich-ml`
+- `distro-cachyos/box/immich` (CachyOS GPU base) — the single Immich image; the ML
+  backend it needs is the supervised `immich-ml` service this candy declares.
 
 ## Related Candies
 
 - `/charly-infrastructure:supervisord` -- process manager dependency
-- `/charly-coder:nodejs` -- Node.js runtime dependency (provides pnpm for the Immich build)
+- `/charly-coder:nodejs` -- Node.js runtime dependency (provides node; the Immich
+  build uses its OWN pinned pnpm)
 - `/charly-infrastructure:postgresql` -- database dependency
 - `/charly-infrastructure:redis` -- cache dependency
 - `/charly-selkies:ffmpeg` -- FFmpeg multimedia (nonfree codecs) — required dependency
-- `/charly-infrastructure:vectorchord` -- VectorChord extension (migration script creates it if available)
-- `/charly-immich:immich-ml` -- optional ML backend
+- `/charly-infrastructure:vectorchord` -- VectorChord extension (auto-detected by the
+  server; the migration script creates it when available)
 
 ## When to Use This Skill
 
@@ -92,9 +130,10 @@ Use when the user asks about:
 - Photo library configuration
 - Immich database or Redis connectivity
 - Port 2283 or `immich.localhost` route
+- Machine learning: face recognition, smart search, OCR (port 3003)
 - Media processing (vips, ffmpeg, ExifTool)
 
 ## Related
 
-- `/charly-image:layer` — candy authoring reference (`charly.yml` schema, task verbs, service declarations)
+- `/charly-image:layer` — candy authoring reference (`charly.yml` schema, plan verbs, service declarations)
 - `/charly-check:check` — declarative testing (`check:` block, `charly check box`, `charly check live`)

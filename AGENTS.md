@@ -14,11 +14,11 @@ Canonical files:
 
 ## Load these skills first (R0)
 
-- `/charly-immich:immich` — the owning skill: box properties, the candy stack,
-  the volumes, and verification. Load before editing, building, deploying, or
-  troubleshooting this candy.
-- `/charly-immich:immich-ml` — the CUDA ML sibling for face recognition and smart
-  search.
+- `/charly-immich:immich-layer` — the owning skill for THIS candy (v3.4.1 build
+  recipe, env, the ML backend, services, volumes). Load before editing, building,
+  deploying, or troubleshooting this candy.
+- `/charly-immich:immich` — the image that composes it (`distro-cachyos/box/immich`,
+  CachyOS GPU base) and its verification.
 - `/charly-pod:pod` — the `kind: pod` / deploy schema reference (this candy is
   composed into a box; tree-position nesting, volumes, ports).
 - `/charly-check:check` — the check/R10 framework: the `check:` step verbs and
@@ -45,18 +45,22 @@ Canonical files:
 
 ## Modify this repo
 
-- Edit the `immich:` candy entity in `charly.yml`; the `skill:` entity in the same
-  file is the owning skill's source — a candy change and its skill change land
-  together.
-- The Immich version pin is the `IMMICH_VERSION` env/var; keep it in step across
-  the source fetch and the server build.
+- Edit the `immich:` candy entity in `charly.yml`; a change to what the candy does
+  lands together with the skill prose under `.agents/skills/` that describes it.
+- The Immich version pin is the `IMMICH_VERSION` var (it must be in `var:`, not
+  `env:` — `download:` templates substitute against `var:` only; `var:` values are
+  emitted as ENV too). Bump it together with the toolchain pins below it, which are
+  what the release itself pins (pnpm `packageManager`, `.nvmrc`, `mise.toml`).
 - The DB-migration and server-start wrappers are authored inline in the `plan:`.
-  Keep the extension list (`vector` / `vchord` / `earthdistance`) in step with the
-  `pod-postgresql` / `vectorchord` dependencies.
-- The four volumes are the persistent stores; a change to their paths must move
-  with the server's `IMMICH_MEDIA_LOCATION`.
-- The `skill:` entity is the source for `/charly-immich:immich`; never edit the
-  generated `SKILL.md` — regenerate it.
+  Keep the extension list (`vector` / `vchord` / `cube` / `earthdistance`) in step
+  with the `pod-postgresql` / `vectorchord` dependencies.
+- The five volumes are the persistent stores; a change to their paths must move
+  with the server's `IMMICH_MEDIA_LOCATION` (media) and `TRANSFORMERS_CACHE` (models).
+- A skill's prose is the FILE at `.agents/skills/<name>/SKILL.md` — authored, not
+  generated. The `skill:` entities in `charly.yml` carry ROUTING only
+  (`name`/`family`/`owner`), and the marketplace generator hard-errors when an
+  entity's inline body disagrees with its file. Edit the file; keep the entity in
+  step.
 
 ## Landing
 
