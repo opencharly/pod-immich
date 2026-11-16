@@ -74,12 +74,22 @@ Every version below is what Immich v3.4.1 itself pins (root `package.json`
    `/build/build-lock.json` ships as a valid empty `{"sources":[],"packages":[]}` — the
    server only warns when the file is absent.
 7. **Machine learning** — `uv venv --python 3.13` then
-   `uv sync --frozen --no-dev --no-editable --active --link-mode copy --extra cuda --extra cuda-libs`
-   in `machine-learning/`, installed into `/opt/immich/machine-learning/.venv`. The
-   `cuda-libs` extra makes the venv self-contained with CUDA 12 runtime wheels, which is
-   what an Arch/CachyOS base needs (its system CUDA is 13.x). ONNX Runtime's
-   `CUDAExecutionProvider` is a build-scope check, so a regression in the GPU stack turns
-   red.
+   `uv sync --frozen --no-dev --no-editable --active --link-mode copy --extra cuda --group cuda-libs`
+   in `machine-learning/`, installed into `/opt/immich/machine-learning/.venv`. `cuda` is
+   an OPTIONAL-DEPENDENCY (`--extra`); `cuda-libs` is a DEPENDENCY GROUP (`--group`) —
+   passing it as `--extra` fails with "Extra `cuda-libs` is not defined in the project's
+   optional-dependencies table". Together they make the venv self-contained with CUDA 12
+   runtime wheels, which is what an Arch/CachyOS base needs (its system CUDA is 13.x).
+   ONNX Runtime's `CUDAExecutionProvider` is a build-scope check, so a regression in the
+   GPU stack turns red.
+
+    The managed CPython must be installed outside root's home
+    (`UV_PYTHON_INSTALL_DIR`), the venv is run through `/opt/immich/ml-run.sh` (which
+    activates it and puts the wheel `lib` dirs on `LD_LIBRARY_PATH`), and the `immich-ml`
+    service overrides `IMMICH_HOST`/`IMMICH_PORT` because `immich_ml` reads those
+    non-prefixed names. All three are load-bearing, not decoration: without them the ML
+    backend is unreadable to the image's uid-1000 user, cannot find `gunicorn`, or binds
+    the server's own port.
 8. **PostgreSQL extensions** — `/docker-entrypoint-initdb.d/01-immich-extensions.sql`
    seeds `vector`, `vchord CASCADE`, `cube` and `earthdistance CASCADE` on first
    `initdb`; `/usr/local/bin/immich-db-migrate.sh` re-ensures them idempotently on every

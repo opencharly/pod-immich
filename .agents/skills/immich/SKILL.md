@@ -72,7 +72,8 @@ same image runs on CPU-only hosts with the ML backend falling back to CPU.
 
 ## Verification
 
-- `charly check run check-cachyos-immich-pod` — the disposable R10 bed for this image
+- `charly check box immich` — the candy's own build-scope checks (server bundle, web
+  build, WASM plugin, geodata set, both wrappers, the ML venv and its CUDA provider)
 - After `charly start immich`:
   - `charly status immich` — container running
   - `charly service status immich` — `immich-db-init`, `immich-server`, `immich-ml` RUNNING
