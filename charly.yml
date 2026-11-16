@@ -1,15 +1,21 @@
 immich:
     candy:
         description: |
-            Immich self-hosted photo and video management server on port 2283.
-            Builds the Immich Node server from source with pnpm into
-            /opt/immich/server, installs a PostgreSQL-aware startup wrapper and an
-            idempotent DB-migration wrapper, and seeds Postgres with the vector /
-            vchord / earthdistance extensions before serving the photo+video API on
-            port 2283. Library, cache, import and external media live under
-            ~/.immich. The behaviour is verifiable as the built server bundle, the
-            installed wrappers, the image-codec toolchain, the seeded init SQL, and a
-            live /api/server/ping response.
+            Immich self-hosted photo and video management server on port 2283 with its
+            machine-learning backend on port 3003 in the same image — face recognition,
+            smart search and OCR run in-process, no second image.
+            Builds the Immich Node server from source with pnpm into /opt/immich/server,
+            the Vite web UI into /build/www, the plugin-core Extism WASM plugin into
+            /build/plugins/immich-plugin-core, and the reverse-geocoding geodata into
+            /build/geodata; installs a PostgreSQL-aware startup wrapper and an idempotent
+            DB-migration wrapper; provisions the Python machine-learning virtualenv
+            (/opt/immich/machine-learning/.venv) from the pinned uv.lock with the CUDA
+            ONNX Runtime extra and supervises it as immich-ml on port 3003. Library,
+            cache, import, external media and ML models live under ~/.immich. The
+            behaviour is verifiable as the built server bundle, the web build, the WASM
+            plugin, the geodata set, the image-codec toolchain, the seeded init SQL, the
+            CUDA execution provider in the ML venv, and live /api/server/ping on 2283
+            plus /ping on 3003.
         require:
             - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
             - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
@@ -17,11 +23,22 @@ immich:
             - '@github.com/opencharly/pod-redis:v2026.272.0226'
             - '@github.com/opencharly/layer-ffmpeg:v2026.272.0056'
         env:
-            IMMICH_VERSION: "v2.7.5"
+            # start.sh logs this; it is the tag the artifacts were built from.
+            IMMICH_SOURCE_REF: "v3.4.1"
             IMMICH_HOST: "0.0.0.0"
             IMMICH_PORT: "2283"
             IMMICH_MEDIA_LOCATION: "~/.immich/library"
-            IMMICH_MACHINE_LEARNING_ENABLED: "false"
+            # The ML backend is part of THIS image, so the server talks to it on the
+            # loopback port the supervised immich-ml service binds. Immich's own
+            # default (http://immich-machine-learning:3003) names the upstream
+            # compose service and does not resolve here.
+            IMMICH_MACHINE_LEARNING_ENABLED: "true"
+            IMMICH_MACHINE_LEARNING_URL: "http://127.0.0.1:3003"
+            MACHINE_LEARNING_HOST: "0.0.0.0"
+            MACHINE_LEARNING_PORT: "3003"
+            MACHINE_LEARNING_WORKERS: "1"
+            MACHINE_LEARNING_WORKER_TIMEOUT: "120"
+            TRANSFORMERS_CACHE: "~/.immich/models"
             SHARP_FORCE_GLOBAL_LIBVIPS: "1"
             POSTGRES_USER: "immich"
             POSTGRES_DB: "immich"
@@ -32,6 +49,24 @@ immich:
             REDIS_HOSTNAME: "127.0.0.1"
             REDIS_PORT: "6379"
             NODE_ENV: "production"
+        var:
+            # The release the artifacts are built from. It lives in var: (not env:)
+            # because `download:` templates substitute against var: only; var: values are
+            # emitted as ENV as well, so the build steps see it too.
+            IMMICH_VERSION: "v3.4.1"
+            # Every toolchain version below is the one immich v3.4.1 itself pins
+            # (root package.json packageManager, .nvmrc, mise.toml), so a version bump
+            # here is a coordinated read of those three files — not a guess:
+            #   node 24.22.1 (nodejs candy supplies the distro node) / pnpm 12.15.0
+            #   extism-js (js-pdk) v1.7.0 + binaryen version_124  → plugin-core WASM
+            #   uv 0.8.15 (the version upstream's machine-learning/Dockerfile ships)
+            PNPM_VERSION: "12.15.0"
+            EXTISM_JS_VERSION: "1.7.0"
+            BINARYEN_VERSION: "124"
+            UV_VERSION: "0.8.15"
+            # Reverse-geocoding data: the geoJSON is fetched from a TAG, never master,
+            # so the artifact set is reproducible (immich v3.4.1 ships v5.1.2).
+            NATURAL_EARTH_TAG: "v5.1.2"
         distro:
             arch:
                 # Arch image-lib names differ from Fedora: libvips (bundles headers — no
@@ -44,6 +79,8 @@ immich:
                     - gcc
                     - make
                     - unzip
+                    - curl
+                    - python
             fedora:
                 package:
                     - vips
@@ -54,16 +91,18 @@ immich:
                     - gcc-c++
                     - make
                     - unzip
+                    - curl
+                    - python3
         port:
             - 2283
+            - 3003
         # Expose the Immich HTTP API URL to every other container that opts in via
         # env_accept: [IMMICH_API_URL]. Plan §4.3. The templated value resolves to
-        # e.g. "http://charly-immich-ml:2283/api" at charly config time for the base instance,
-        # and to the instance-scoped container name for instances (e.g.
-        # "http://charly-immich-ml-test:2283/api" for immich-ml -i test). The consumer is
-        # hermes, which declares this env var in its env_accept. openwebui deliberately does
-        # NOT: Open Web UI has no immich integration, so it accepted this value without ever
-        # reading it — dead declarations, removed in opencharly/pod-openwebui#15.
+        # "http://<container>:2283/api" at charly config time for the base instance and
+        # to the instance-scoped container name for instances. The consumer is hermes,
+        # which declares this env var in its env_accept. openwebui deliberately does
+        # NOT: Open Web UI has no immich integration, so it accepted this value without
+        # ever reading it — dead declarations, removed in opencharly/pod-openwebui#15.
         env_provide:
             IMMICH_API_URL: "http://{{.ContainerName}}:2283/api"
         env_accept:
@@ -75,9 +114,7 @@ immich:
         #   charly secrets set charly/api-key/immich <key>
         #
         # hermes declares the same secret_accept entry with the same key path, so one
-        # `charly secrets set` populates both consumers. (openwebui no longer does: it has
-        # no immich integration, and the unconsumed entry was removed in
-        # opencharly/pod-openwebui#15.)
+        # `charly secrets set` populates both consumers.
         secret_accept:
             - name: IMMICH_API_KEY
               description: "Immich API key for programmatic access (generated in the Immich admin UI after first-run)"
@@ -91,6 +128,9 @@ immich:
               path: "~/.immich/import"
             - name: external
               path: "~/.immich/external"
+            # The ML models the backend downloads on first use (CLIP, face, OCR).
+            - name: models
+              path: "~/.immich/models"
         secret:
             - name: db-password
               env: DB_PASSWORD
@@ -115,106 +155,186 @@ immich:
               priority: 30
               enable: true
               scope: system
+            - name: immich-ml
+              exec: /opt/immich/ml-run.sh
+              # immich_ml's NonPrefixedSettings reads IMMICH_HOST / IMMICH_PORT
+              # (machine-learning/immich_ml/config.py — defaults "[::]" / 3003), NOT the
+              # MACHINE_LEARNING_* prefix. This image sets IMMICH_PORT=2283 for the server,
+              # so without this override the ML backend binds the server's port and
+              # crash-loops on "address already in use".
+              env:
+                IMMICH_HOST: 0.0.0.0
+                IMMICH_PORT: "3003"
+              restart: always
+              working_directory: /opt/immich/machine-learning
+              priority: 40
+              enable: true
+              scope: system
         plan:
-            - run: |
-                command=curl -fL --retry 3 --retry-delay 2 "https://github.com/immich-app/immich/archive/refs/tags/${IMMICH_VERSION}.tar.gz" | tar xz -C /tmp
-                mv /tmp/immich-$(echo ${IMMICH_VERSION} | sed 's/^v//') /tmp/immich
+            # --- toolchain -----------------------------------------------------------------
+            - run: install the pnpm version immich v3.4.1 pins, beside the image's own pnpm
               run_as: root
               command: |
-                curl -fL --retry 3 --retry-delay 2 "https://github.com/immich-app/immich/archive/refs/tags/${IMMICH_VERSION}.tar.gz" | tar xz -C /tmp
-                mv /tmp/immich-$(echo ${IMMICH_VERSION} | sed 's/^v//') /tmp/immich
-            - run: |
-                command=cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm install --frozen-lockfile
-                cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm --filter immich build
-                cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm --filter immich deploy --prod /opt/immich/server
+                set -o pipefail
+                case "${BUILD_ARCH}" in
+                  x86_64)  PNPM_ARCH="x64" ;;
+                  aarch64) PNPM_ARCH="arm64" ;;
+                  *) echo "Unsupported arch: ${BUILD_ARCH}"; exit 1 ;;
+                esac
+                # pnpm 12 publishes a tarball (`pnpm` launcher + its dist/ tree), not the
+                # bare single-file binary the 10.x line shipped.
+                mkdir -p /opt/immich/pnpm
+                curl -fsSL --retry 3 --retry-delay 2 \
+                  "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linux-${PNPM_ARCH}.tar.gz" \
+                  | tar xz -C /opt/immich/pnpm
+                chmod 0755 /opt/immich/pnpm/pnpm
+                /opt/immich/pnpm/pnpm --version
+            - run: install the uv package manager that builds the machine-learning virtualenv
+              # The release nests `uv` and `uvx` under an arch-prefixed directory, so
+              # strip_components: 1 lands both flat in /usr/local/bin (the archive holds
+              # nothing else). Do NOT pair extract_include with strip_components: tar
+              # matches the include against the PRE-strip member path, so
+              # `extract_include: [uv]` never matches `uv-<triple>/uv` and the step dies
+              # with "tar: uv: Not found in archive".
+              download: "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${BUILD_ARCH}-unknown-linux-gnu.tar.gz"
+              extract: tar.gz
+              strip_components: 1
+              to: /usr/local/bin
+              mode: "0755"
+              run_as: root
+            - run: fetch the immich source release
+              download: "https://github.com/immich-app/immich/archive/refs/tags/${IMMICH_VERSION}.tar.gz"
+              extract: tar.gz
+              to: /tmp/immich-src
+              strip_components: 1
+              run_as: root
+            # --- plugin-core WASM + workspace packages -------------------------------------
+            - run: install the extism-js PDK compiler and the binaryen wasm toolchain
               run_as: root
               command: |
-                cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm install --frozen-lockfile
-                cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm --filter immich build
-                cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm --filter immich deploy --prod /opt/immich/server
-            - run: |
-                command=mkdir -p /build/geodata
+                set -o pipefail
+                curl -fsSL --retry 3 --retry-delay 2 \
+                  "https://github.com/extism/js-pdk/releases/download/v${EXTISM_JS_VERSION}/extism-js-${BUILD_ARCH}-linux-v${EXTISM_JS_VERSION}.gz" \
+                  | gunzip > /usr/local/bin/extism-js
+                chmod 0755 /usr/local/bin/extism-js
+                curl -fsSL --retry 3 --retry-delay 2 \
+                  "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-${BUILD_ARCH}-linux.tar.gz" \
+                  | tar xz -C /tmp
+                for b in /tmp/binaryen-version_${BINARYEN_VERSION}/bin/*; do
+                  ln -sf "$b" "/usr/local/bin/$(basename "$b")"
+                done
+                test -x /usr/local/bin/extism-js
+            - run: build the sdk, plugin SDK and core plugin, and stage the WASM plugin artifact
+              run_as: root
+              command: |
+                export npm_config_cache=/tmp/npm-root-cache npm_config_store_dir=/tmp/pnpm-store
+                cd /tmp/immich-src
+                /opt/immich/pnpm/pnpm --filter @immich/sdk --filter @immich/plugin-sdk --filter @immich/plugin-core install --frozen-lockfile
+                /opt/immich/pnpm/pnpm --filter @immich/sdk --filter @immich/plugin-sdk --filter @immich/plugin-core build
+                mkdir -p /build/plugins/immich-plugin-core
+                cp -r packages/plugin-core/dist /build/plugins/immich-plugin-core/dist
+                cp packages/plugin-core/manifest.json /build/plugins/immich-plugin-core/manifest.json
+            # --- server -------------------------------------------------------------------
+            - run: build the immich server bundle and deploy the production tree to /opt/immich
+              run_as: root
+              command: |
+                export npm_config_cache=/tmp/npm-root-cache npm_config_store_dir=/tmp/pnpm-store
+                cd /tmp/immich-src
+                /opt/immich/pnpm/pnpm --filter immich install --frozen-lockfile
+                /opt/immich/pnpm/pnpm --filter immich build
+                /opt/immich/pnpm/pnpm --filter immich --prod --no-optional deploy /opt/immich/server
+                # sharp 0.35 no longer links the base image's global libvips during
+                # `pnpm deploy`; upstream rebuilds the deployed copy against it.
+                SHARP_FORCE_GLOBAL_LIBVIPS=true \
+                  /opt/immich/pnpm/pnpm --config.verify-deps-before-run=false \
+                    --dir /opt/immich/server/node_modules/sharp exec npm run build
+            - run: build the Vite web UI into the runtime web root
+              run_as: root
+              command: |
+                export npm_config_cache=/tmp/npm-root-cache npm_config_store_dir=/tmp/pnpm-store
+                cd /tmp/immich-src
+                # web resolves "#i18n/*" to ../i18n/*, so the build needs the i18n tree.
+                /opt/immich/pnpm/pnpm --filter immich-web install --frozen-lockfile
+                /opt/immich/pnpm/pnpm --filter immich-web build
+                cp -r /tmp/immich-src/web/build /build/www
+            # --- reverse geocoding data ---------------------------------------------------
+            - run: fetch the reverse-geocoding geodata files
+              download: "https://download.geonames.org/export/dump/admin1CodesASCII.txt"
+              to: /build/geodata/admin1CodesASCII.txt
+              mode: "0444"
+              run_as: root
+            - run: fetch the second-level administrative-code geodata file
+              download: "https://download.geonames.org/export/dump/admin2Codes.txt"
+              to: /build/geodata/admin2Codes.txt
+              mode: "0444"
+              run_as: root
+            - run: fetch the country-info geodata file immich v3 reads for country names
+              download: "https://download.geonames.org/export/dump/countryInfo.txt"
+              to: /build/geodata/countryInfo.txt
+              mode: "0444"
+              run_as: root
+            - run: fetch the cities geodata archive
+              download: "https://download.geonames.org/export/dump/cities500.zip"
+              to: /build/geodata/cities500.zip
+              run_as: root
+            - run: fetch the Natural Earth country outline the map layer renders
+              download: "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/${NATURAL_EARTH_TAG}/geojson/ne_10m_admin_0_countries.geojson"
+              to: /build/geodata/ne_10m_admin_0_countries.geojson
+              mode: "0444"
+              run_as: root
+            - run: unpack the cities file and stamp the geodata set and build lockfile
+              run_as: root
+              command: |
                 cd /build/geodata
-                curl -fsSL --retry 3 --retry-delay 2 https://download.geonames.org/export/dump/admin1CodesASCII.txt -o admin1CodesASCII.txt
-                curl -fsSL --retry 3 --retry-delay 2 https://download.geonames.org/export/dump/admin2Codes.txt -o admin2Codes.txt
-                curl -fsSL --retry 3 --retry-delay 2 https://download.geonames.org/export/dump/cities500.zip -o cities500.zip && unzip -o cities500.zip && rm cities500.zip
-                curl -fsSL --retry 3 --retry-delay 2 "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson" -o ne_10m_admin_0_countries.geojson
-                date -I > geodata-date.txt
-                echo '{}' > /build/build-lock.json
-                mkdir -p /build/corePlugin
-                cp /tmp/immich/plugins/manifest.json /build/corePlugin/manifest.json
+                unzip -o cities500.zip
+                rm -f cities500.zip
+                date -Iseconds | tr -d '\n' > geodata-date.txt
+                # /build/build-lock.json is read by ServerInfoRepository; the shape is
+                # {sources:[{name,version}],packages:[{name,version}]} and each entry is
+                # looked up by name. An empty pair of lists is a valid lockfile with
+                # nothing claimed, instead of a missing file that logs a warning on every
+                # start.
+                printf '{"sources":[],"packages":[]}\n' > /build/build-lock.json
+                ls -l /build/geodata /build/build-lock.json
+            # --- machine-learning backend -------------------------------------------------
+            - run: provision the machine-learning virtualenv with the CUDA onnx runtime extra
               run_as: root
+              # uv keeps its downloads and managed interpreters in a cache; mount it so a
+              # rebuild of this candy does not re-fetch ~2.5GB of CUDA wheels.
+              cache:
+                - /var/cache/charly-uv
               command: |
-                mkdir -p /build/geodata
-                cd /build/geodata
-                curl -sL https://download.geonames.org/export/dump/admin1CodesASCII.txt -o admin1CodesASCII.txt
-                curl -sL https://download.geonames.org/export/dump/admin2Codes.txt -o admin2Codes.txt
-                curl -sL https://download.geonames.org/export/dump/cities500.zip -o cities500.zip && unzip -o cities500.zip && rm cities500.zip
-                curl -sL "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson" -o ne_10m_admin_0_countries.geojson
-                date -I > geodata-date.txt
-                echo '{}' > /build/build-lock.json
-                mkdir -p /build/corePlugin
-                cp /tmp/immich/plugins/manifest.json /build/corePlugin/manifest.json
-            - run: |
-                command=cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm --filter @immich/sdk --filter immich-web build
-                cp -r /tmp/immich/web/build /build/www
+                # The managed CPython must live OUTSIDE root's home: uv's default
+                # (~/.local/share/uv/python) is mode 0700 under /root, so the venv's
+                # `bin/python` symlink is unreadable to the image's uid-1000 user and every
+                # probe dies with exit 126 while the build itself succeeds.
+                export UV_PYTHON_INSTALL_DIR=/opt/immich/python
+                export UV_CACHE_DIR=/var/cache/charly-uv
+                mkdir -p /opt/immich/machine-learning /opt/immich/python
+                uv venv --python 3.13 /opt/immich/machine-learning/.venv
+                chmod -R a+rX /opt/immich/python
+                cd /tmp/immich-src/machine-learning
+                # `cuda` is an OPTIONAL-DEPENDENCY (--extra); `cuda-libs` is a
+                # DEPENDENCY-GROUP (--group) — passing it as --extra fails with
+                # "Extra `cuda-libs` is not defined in the project's
+                # optional-dependencies table".
+                VIRTUAL_ENV=/opt/immich/machine-learning/.venv uv sync --frozen --no-dev \
+                  --no-editable --active --link-mode copy \
+                  --extra cuda --group cuda-libs
+            - run: remove the build source tree
               run_as: root
-              command: |
-                cd /tmp/immich && npm_config_cache=/tmp/npm-root-cache pnpm --filter @immich/sdk --filter immich-web build
-                cp -r /tmp/immich/web/build /build/www
-            - run: |
-                command=EXTISM_JS_VERSION=1.6.0
-                BINARYEN_VERSION=124
-                ARCH=$(uname -m)
-
-                curl -sL "https://github.com/extism/js-pdk/releases/download/v${EXTISM_JS_VERSION}/extism-js-${ARCH}-linux-v${EXTISM_JS_VERSION}.gz" | gunzip > /usr/local/bin/extism-js
-                chmod +x /usr/local/bin/extism-js
-
-                curl -sL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-${ARCH}-linux.tar.gz" | tar xz -C /tmp
-                cp /tmp/binaryen-version_${BINARYEN_VERSION}/bin/* /usr/local/bin/
-                rm -rf /tmp/binaryen-version_${BINARYEN_VERSION}
-
-                cd /tmp/immich/plugins
-                npm_config_cache=/tmp/npm-root-cache pnpm install --frozen-lockfile
-                npm_config_cache=/tmp/npm-root-cache pnpm run build
-
-                mkdir -p /build/corePlugin/dist
-                cp -r dist/* /build/corePlugin/dist/
-
-                rm -f /usr/local/bin/extism-js /usr/local/bin/wasm-opt /usr/local/bin/wasm-merge /usr/local/bin/wasm-as /usr/local/bin/wasm-dis /usr/local/bin/wasm-ctor-check /usr/local/bin/wasm-emscripten-finalize /usr/local/bin/wasm-metadce /usr/local/bin/wasm-reduce /usr/local/bin/wasm-shell /usr/local/bin/wasm-split /usr/local/bin/wasm2js
-              run_as: root
-              command: |
-                EXTISM_JS_VERSION=1.6.0
-                BINARYEN_VERSION=124
-                ARCH=$(uname -m)
-
-                curl -sL "https://github.com/extism/js-pdk/releases/download/v${EXTISM_JS_VERSION}/extism-js-${ARCH}-linux-v${EXTISM_JS_VERSION}.gz" | gunzip > /usr/local/bin/extism-js
-                chmod +x /usr/local/bin/extism-js
-
-                curl -sL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-${ARCH}-linux.tar.gz" | tar xz -C /tmp
-                cp /tmp/binaryen-version_${BINARYEN_VERSION}/bin/* /usr/local/bin/
-                rm -rf /tmp/binaryen-version_${BINARYEN_VERSION}
-
-                cd /tmp/immich/plugins
-                npm_config_cache=/tmp/npm-root-cache pnpm install --frozen-lockfile
-                npm_config_cache=/tmp/npm-root-cache pnpm run build
-
-                mkdir -p /build/corePlugin/dist
-                cp -r dist/* /build/corePlugin/dist/
-
-                rm -f /usr/local/bin/extism-js /usr/local/bin/wasm-opt /usr/local/bin/wasm-merge /usr/local/bin/wasm-as /usr/local/bin/wasm-dis /usr/local/bin/wasm-ctor-check /usr/local/bin/wasm-emscripten-finalize /usr/local/bin/wasm-metadce /usr/local/bin/wasm-reduce /usr/local/bin/wasm-shell /usr/local/bin/wasm-split /usr/local/bin/wasm2js
-            - run: command=rm -rf /tmp/immich
-              run_as: root
-              command: rm -rf /tmp/immich
-            - run: write=/docker-entrypoint-initdb.d/01-immich-extensions.sql
+              command: rm -rf /tmp/immich-src
+            # --- database bootstrap + wrappers --------------------------------------------
+            - run: write the Postgres init script that seeds the extensions immich requires
               write: /docker-entrypoint-initdb.d/01-immich-extensions.sql
               run_as: root
               mode: "0644"
               content: |
                 CREATE EXTENSION IF NOT EXISTS vector;
                 CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
+                CREATE EXTENSION IF NOT EXISTS cube;
                 CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;
-            - run: write=/usr/local/bin/immich-db-migrate.sh
+            - run: write the idempotent database-migration wrapper
               write: /usr/local/bin/immich-db-migrate.sh
               run_as: root
               mode: "0755"
@@ -236,7 +356,8 @@ immich:
                     exit 1
                 fi
 
-                # Ensure core extensions (idempotent — safe on every startup)
+                # Ensure core extensions (idempotent — safe on every startup).
+                # earthdistance is built on cube, which CASCADE pulls in.
                 psql -h "$SOCKET_DIR" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
                     -c "CREATE EXTENSION IF NOT EXISTS vector;" \
                     -c "CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;"
@@ -250,7 +371,40 @@ immich:
                 else
                     echo "VectorChord not available — skipping"
                 fi
-            - run: write=/usr/local/bin/immich-server-start.sh
+            - run: write the machine-learning run wrapper that puts the venv CUDA wheels on the loader path
+              write: /opt/immich/ml-run.sh
+              run_as: root
+              mode: "0755"
+              content: |
+                #!/bin/bash
+                # The `cuda-libs` dependency group installs the CUDA 12 runtime wheels INSIDE
+                # the venv (site-packages/nvidia/<pkg>/lib). Those directories are not on the
+                # default loader path, so `import onnxruntime` fails with
+                # "libcudart.so.12: cannot open shared object file" until they are. An
+                # Arch/CachyOS GPU base ships CUDA 13, which onnxruntime-gpu 1.27 cannot load,
+                # so the venv carries its own cu12 stack and this wrapper points the loader at
+                # it. It is the ONE implementation: the supervised service and the CUDA
+                # provider probe both come through here.
+                set -euo pipefail
+                VENV=/opt/immich/machine-learning/.venv
+                PY="${VENV}/bin/python"
+                # immich_ml starts its worker by exec'ing the bare `gunicorn` from PATH
+                # (immich_ml/__main__.py), so the venv must be ACTIVE — exactly why
+                # upstream's ML image exports PATH=/opt/venv/bin:$PATH. Without this the
+                # exec resolves the base image's system python and dies with
+                # "/usr/sbin/python: No module named gunicorn".
+                export PATH="${VENV}/bin:${PATH}"
+                SITE="$("$PY" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+                libs=""
+                while IFS= read -r d; do
+                  libs="${d}${libs:+:${libs}}"
+                done < <(find "${SITE}" -maxdepth 4 -type d -name lib -path '*/nvidia/*' 2>/dev/null || true)
+                export LD_LIBRARY_PATH="${libs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+                if [ "$#" -eq 0 ]; then
+                  set -- "$PY" -m immich_ml
+                fi
+                exec "$@"
+            - run: write the PostgreSQL-aware server startup wrapper
               write: /usr/local/bin/immich-server-start.sh
               run_as: root
               mode: "0755"
@@ -259,22 +413,44 @@ immich:
                 until pg_isready -h "$HOME/.postgresql" -U "${POSTGRES_USER:-immich}" >/dev/null 2>&1; do
                     sleep 1
                 done
-                exec node /opt/immich/server/dist/main
-            - run: mkdir=${HOME}/.immich/library
+                # server/package.json is "type": "module"; the ESM entry needs its
+                # extension spelled out.
+                exec node /opt/immich/server/dist/main.js
+            - run: create the per-user media and model directories
               mkdir: "${HOME}/.immich/library"
               run_as: "${USER}"
-            - run: mkdir=${HOME}/.immich/cache
+            - run: create the per-user thumbnail cache directory
               mkdir: "${HOME}/.immich/cache"
               run_as: "${USER}"
-            - run: mkdir=${HOME}/.immich/import
+            - run: create the per-user upload staging directory
               mkdir: "${HOME}/.immich/import"
               run_as: "${USER}"
-            - run: mkdir=${HOME}/.immich/external
+            - run: create the per-user external-library directory
               mkdir: "${HOME}/.immich/external"
               run_as: "${USER}"
+            - run: create the per-user machine-learning model cache directory
+              mkdir: "${HOME}/.immich/models"
+              run_as: "${USER}"
+            # --- build-scope probes -------------------------------------------------------
             - check: the Immich Node server bundle is built into /opt/immich/server
               file:
                 file: /opt/immich/server/dist/main.js
+                exists: true
+            - check: the built web UI is staged into the runtime web root
+              file:
+                file: /build/www/index.html
+                exists: true
+            - check: the core plugin WASM artifact and its manifest are staged
+              file:
+                file: /build/plugins/immich-plugin-core/dist/plugin.wasm
+                exists: true
+            - check: the reverse-geocoding geodata set carries the country-info file v3 reads
+              file:
+                file: /build/geodata/countryInfo.txt
+                exists: true
+            - check: the geodata set is stamped so the map layer can detect a data refresh
+              file:
+                file: /build/geodata/geodata-date.txt
                 exists: true
             - check: the PostgreSQL-aware server startup wrapper is installed and executable
               file:
@@ -298,25 +474,30 @@ immich:
                 file: /docker-entrypoint-initdb.d/01-immich-extensions.sql
                 exists: true
                 contains: "CREATE EXTENSION IF NOT EXISTS vector"
-            - check: the running Immich API answers its health ping on port 2283
-              context:
-                - runtime
-              http:
-                http: http://127.0.0.1:${HOST_PORT:2283}/api/server/ping
-                status: 200
-                body:
-                    - contains: "pong"
-            - agent-check: the web UI presents a usable first-run / login experience
-            - check: file=/docker-entrypoint-initdb.d/01-immich-extensions.sql
-              id: immich-initdb-sql
+            - check: the machine-learning virtualenv ships a python interpreter
               file:
-                file: /docker-entrypoint-initdb.d/01-immich-extensions.sql
+                file: /opt/immich/machine-learning/.venv/bin/python
                 exists: true
-            - check: file=${HOME}/.immich/library
-              id: immich-library-dir
+            - check: the immich_ml inference module is installed into the machine-learning virtualenv
+              id: immich-ml-module-installed
+              exit_status: 0
+              command:
+                command: /opt/immich/machine-learning/.venv/bin/python -c 'import immich_ml'
+                in_container: true
+            - check: the CUDA execution provider is available to onnxruntime in the ML virtualenv
+              id: immich-ml-cuda-provider
+              exit_status: 0
+              stdout:
+                - contains: CUDAExecutionProvider
+              command:
+                command: /opt/immich/ml-run.sh /opt/immich/machine-learning/.venv/bin/python -c 'import onnxruntime; print("\n".join(onnxruntime.get_available_providers()))'
+                in_container: true
+            - check: immich-db-init is declared as a one-shot service that must exit 0
+              id: immich-db-init-declared
               file:
-                file: ${HOME}/.immich/library
-                filetype: directory
+                file: /usr/local/bin/immich-db-migrate.sh
+                exists: true
+            # --- runtime probes -----------------------------------------------------------
             - check: service=immich-server
               id: immich-server-running
               context:
@@ -324,14 +505,13 @@ immich:
               service:
                 service: immich-server
                 running: true
-            - check: addr=127.0.0.1:${HOST_PORT:2283}
-              id: immich-port-reachable
-              timeout: 5s
+            - check: the supervised immich-ml service is running
+              id: immich-ml-service-running
               context:
                 - runtime
-              addr:
-                addr: 127.0.0.1:${HOST_PORT:2283}
-                reachable: true
+              service:
+                service: immich-ml
+                running: true
             - check: http=http://127.0.0.1:${HOST_PORT:2283}/api/server/ping
               id: immich-http-ping
               timeout: 10s
@@ -342,6 +522,26 @@ immich:
                 status: 200
                 body:
                     - contains: "pong"
+            - check: command=curl -fsS http://127.0.0.1:3003/ping
+              id: immich-ml-internal-ping
+              exit_status: 0
+              timeout: 10s
+              stdout:
+                - contains: pong
+              context:
+                - runtime
+              command:
+                command: curl -fsS http://127.0.0.1:3003/ping
+                in_container: true
+            - check: addr=127.0.0.1:${HOST_PORT:2283}
+              id: immich-port-reachable
+              timeout: 5s
+              context:
+                - runtime
+              addr:
+                addr: 127.0.0.1:${HOST_PORT:2283}
+                reachable: true
+            - agent-check: the web UI presents a usable first-run / login experience
 
 immich-skill:
     skill:
