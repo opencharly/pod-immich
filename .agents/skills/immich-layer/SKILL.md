@@ -57,7 +57,12 @@ Every version below is what Immich v3.4.1 itself pins (root `package.json`
 
 1. **Toolchain** — pnpm 12.15.0 (a tarball in the 12.x line, not the 10.x single
    binary) into `/opt/immich/pnpm`; uv from its release tarball. The image's own
-   pnpm from `layer-nodejs` is deliberately NOT replaced.
+   pnpm from `layer-nodejs` is deliberately NOT replaced. The pin is the candy's
+   `IMMICH_PNPM_VERSION` var, NAMESPACED because `var:` values are exported as image
+   ENV: an un-namespaced pnpm pin here is global and shadows `layer-nodejs`'s own
+   same-named pin, whose measurement check reads it at probe time (measured:
+   `distro-cachyos` `check-cachyos-immich-pod` failed one check of 123 with
+   "pnpm 12.15.0 is UNMEASURED").
 2. **Workspace packages** — `@immich/sdk` → `@immich/plugin-sdk` → server; the server
    has a `workspace:*` dependency on `@immich/plugin-sdk`, so the order matters.
 3. **Core plugin (WASM)** — `packages/plugin-core` (moved from `plugins/` in v3),
