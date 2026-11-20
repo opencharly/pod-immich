@@ -425,9 +425,11 @@ immich:
                 #!/bin/bash
                 # The composed `pod-postgresql` starts its cluster with
                 # `-c listen_addresses=''`: it serves the UNIX socket and binds no TCP
-                # port, so the server must dial the socket, not 127.0.0.1:5432. The
-                # readiness probe below already uses the socket; point the client at
-                # the same place, resolved from HOME so it follows the deploy user.
+                # port at all, so the server must dial the socket rather than a loopback
+                # TCP port (which nothing listens on). The readiness probe below already
+                # uses the socket; point the client at the same place, resolved from HOME
+                # so it follows the deploy user. This file therefore mentions no loopback
+                # host anywhere — the negative assertion below would refuse it.
                 SOCKET_DIR="${HOME:-/home/user}/.postgresql"
                 until pg_isready -h "$SOCKET_DIR" -U "${POSTGRES_USER:-immich}" >/dev/null 2>&1; do
                     sleep 1
@@ -481,11 +483,18 @@ immich:
             # the wrapper MUST hand the server the socket directory. This assertion is
             # what makes a future regression to a loopback hostname RED at image-check
             # time instead of a crash-loop found only by a live pod bed.
-            # The two fragments below carry ZERO `$` on purpose: an assert-only step
+            # The fragments below carry ZERO `$` on purpose: an assert-only step
             # resolves the runner's auto-exported variables, so a literal `${...}` or
             # `$NAME` in the assertion text would be substituted (or mark the step
-            # DEAD), never compared. These fragments contain every token that matters
-            # in the wrapper without being variable syntax.
+            # DEAD), never compared. The NEGATIVE arm is what makes this assertion
+            # able to fail on the regression it exists for: a `contains` of generic
+            # fragments is satisfied by `export DB_HOSTNAME="127.0.0.1"` too, so
+            # without `not_contains` the check would stay green while the server went
+            # back to the ECONNREFUSED crash-loop.
+            # POSITIVE arm: the socket wiring is present (plain string fragments, no
+            # `$` — an assert-only step substitutes the runner's auto-exported
+            # variables, so variable syntax here would be compared against its VALUE or
+            # mark the step DEAD).
             - check: the server wrapper points the database client at the composed candy's unix socket
               id: immich-server-db-unix-socket
               file:
@@ -494,6 +503,14 @@ immich:
                     - 'export DB_HOSTNAME='
                     - 'SOCKET_DIR='
                     - '/.postgresql'
+            # NEGATIVE arm: the value itself. A `contains` of fragments is satisfied by
+            # `export DB_HOSTNAME="127.0.0.1"` too, so the positive arm alone would stay
+            # green through exactly the regression this change exists to prevent. The
+            # grep is negated in the shell, so a loopback value turns the step RED.
+            - check: the server wrapper never hands the database client a loopback host
+              id: immich-server-db-no-loopback
+              command: '! grep -q 127.0.0.1 /usr/local/bin/immich-server-start.sh'
+              exit_status: 0
             - check: the idempotent DB-migration wrapper is installed and executable
               file:
                 file: /usr/local/bin/immich-db-migrate.sh
