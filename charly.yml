@@ -42,7 +42,13 @@ immich:
             SHARP_FORCE_GLOBAL_LIBVIPS: "1"
             POSTGRES_USER: "immich"
             POSTGRES_DB: "immich"
-            DB_HOSTNAME: "127.0.0.1"
+            # The database is the composed `pod-postgresql` candy, whose entrypoint
+            # starts the cluster with `-c listen_addresses=''` — it accepts clients on
+            # the UNIX socket `$HOME/.postgresql` and on nothing else, so a TCP
+            # hostname can never connect. This variable is the pre-exec default the
+            # startup wrapper replaces with the real `$HOME/.postgresql` at runtime
+            # (see immich-server-start.sh); it is deliberately NOT `127.0.0.1`.
+            DB_HOSTNAME: "~/.postgresql"
             DB_PORT: "5432"
             DB_USERNAME: "immich"
             DB_DATABASE_NAME: "immich"
@@ -417,9 +423,16 @@ immich:
               mode: "0755"
               content: |
                 #!/bin/bash
-                until pg_isready -h "$HOME/.postgresql" -U "${POSTGRES_USER:-immich}" >/dev/null 2>&1; do
+                # The composed `pod-postgresql` starts its cluster with
+                # `-c listen_addresses=''`: it serves the UNIX socket and binds no TCP
+                # port, so the server must dial the socket, not 127.0.0.1:5432. The
+                # readiness probe below already uses the socket; point the client at
+                # the same place, resolved from HOME so it follows the deploy user.
+                SOCKET_DIR="${HOME:-/home/user}/.postgresql"
+                until pg_isready -h "$SOCKET_DIR" -U "${POSTGRES_USER:-immich}" >/dev/null 2>&1; do
                     sleep 1
                 done
+                export DB_HOSTNAME="$SOCKET_DIR"
                 # server/package.json is "type": "module"; the ESM entry needs its
                 # extension spelled out.
                 exec node /opt/immich/server/dist/main.js
@@ -464,6 +477,23 @@ immich:
                 file: /usr/local/bin/immich-server-start.sh
                 exists: true
                 mode: "0755"
+            # The composed pod-postgresql binds no TCP port (`listen_addresses=''`), so
+            # the wrapper MUST hand the server the socket directory. This assertion is
+            # what makes a future regression to a loopback hostname RED at image-check
+            # time instead of a crash-loop found only by a live pod bed.
+            # The two fragments below carry ZERO `$` on purpose: an assert-only step
+            # resolves the runner's auto-exported variables, so a literal `${...}` or
+            # `$NAME` in the assertion text would be substituted (or mark the step
+            # DEAD), never compared. These fragments contain every token that matters
+            # in the wrapper without being variable syntax.
+            - check: the server wrapper points the database client at the composed candy's unix socket
+              id: immich-server-db-unix-socket
+              file:
+                file: /usr/local/bin/immich-server-start.sh
+                contains:
+                    - 'export DB_HOSTNAME='
+                    - 'SOCKET_DIR='
+                    - '/.postgresql'
             - check: the idempotent DB-migration wrapper is installed and executable
               file:
                 file: /usr/local/bin/immich-db-migrate.sh
