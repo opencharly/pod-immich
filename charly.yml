@@ -60,7 +60,14 @@ immich:
             #   node 24.22.1 (nodejs candy supplies the distro node) / pnpm 12.15.0
             #   extism-js (js-pdk) v1.7.0 + binaryen version_124  → plugin-core WASM
             #   uv 0.8.15 (the version upstream's machine-learning/Dockerfile ships)
-            PNPM_VERSION: "12.15.0"
+            # NAMESPACED on purpose. A candy's `var:` values are exported as image ENV, so
+            # an un-namespaced pnpm pin here is GLOBAL, and `layer-nodejs` exports its own
+            # pin under that same un-namespaced name — its measurement check reads it at
+            # probe time. Inside an image composing both, this candy's value won and reded
+            # that check (measured: distro-cachyos check-cachyos-immich-pod, 1 failing
+            # check of 123, "pnpm 12.15.0 is UNMEASURED"). The name is namespaced to this
+            # candy; the install is unchanged.
+            IMMICH_PNPM_VERSION: "12.15.0"
             EXTISM_JS_VERSION: "1.7.0"
             BINARYEN_VERSION: "124"
             UV_VERSION: "0.8.15"
@@ -185,7 +192,7 @@ immich:
                 # bare single-file binary the 10.x line shipped.
                 mkdir -p /opt/immich/pnpm
                 curl -fsSL --retry 3 --retry-delay 2 \
-                  "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linux-${PNPM_ARCH}.tar.gz" \
+                  "https://github.com/pnpm/pnpm/releases/download/v${IMMICH_PNPM_VERSION}/pnpm-linux-${PNPM_ARCH}.tar.gz" \
                   | tar xz -C /opt/immich/pnpm
                 chmod 0755 /opt/immich/pnpm/pnpm
                 /opt/immich/pnpm/pnpm --version
