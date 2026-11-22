@@ -1,7 +1,7 @@
 ---
 name: immich
 description: 'Immich photo and video management on port 2283 with in-image CUDA machine
-  learning on port 3003, deployed on the CachyOS GPU base.
+  learning on port 3003, deployed on the CachyOS CDI pod base.
 
   MUST be invoked before building, deploying, configuring, or troubleshooting the
   immich image.'

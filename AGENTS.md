@@ -18,7 +18,7 @@ Canonical files:
   recipe, env, the ML backend, services, volumes). Load before editing, building,
   deploying, or troubleshooting this candy.
 - `/charly-immich:immich` — the image that composes it (`distro-cachyos/box/immich-cdi`,
-  CachyOS GPU base) and its verification.
+  CachyOS CDI pod base) and its verification.
 - `/charly-pod:pod` — the `kind: pod` / deploy schema reference (this candy is
   composed into a box; tree-position nesting, volumes, ports).
 - `/charly-check:check` — the check/R10 framework: the `check:` step verbs and

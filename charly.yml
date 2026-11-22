@@ -394,7 +394,7 @@ immich:
                 # the venv (site-packages/nvidia/<pkg>/lib). Those directories are not on the
                 # default loader path, so `import onnxruntime` fails with
                 # "libcudart.so.12: cannot open shared object file" until they are. An
-                # Arch/CachyOS GPU base ships CUDA 13, which onnxruntime-gpu 1.27 cannot load,
+                # CachyOS ships CUDA 13, which onnxruntime-gpu 1.27 cannot load,
                 # so the venv carries its own cu12 stack and this wrapper points the loader at
                 # it. It is the ONE implementation: the supervised service and the CUDA
                 # provider probe both come through here.

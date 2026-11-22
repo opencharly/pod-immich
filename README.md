@@ -61,7 +61,7 @@ charly secrets set charly/api-key/immich <key>
 
 - Owning skills: `/charly-immich:immich-layer` — this candy (build recipe, env,
   services, volumes); `/charly-immich:immich` — the image that composes it
-  (`distro-cachyos/box/immich-cdi`, CachyOS GPU base) and its verification.
+  (`distro-cachyos/box/immich-cdi`, CachyOS CDI pod base) and its verification.
 - `/charly-infrastructure:postgresql` / `/charly-infrastructure:vectorchord` /
   `/charly-infrastructure:redis` — the backing data services.
 - [`opencharly/charly`](https://github.com/opencharly/charly) — the charly CLI and image builder
