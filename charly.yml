@@ -24,7 +24,7 @@ immich:
             - '@github.com/opencharly/layer-ffmpeg:v2026.272.0056'
         env:
             # start.sh logs this; it is the tag the artifacts were built from.
-            IMMICH_SOURCE_REF: "v3.4.1"
+            IMMICH_SOURCE_REF: "v3.4.2"
             IMMICH_HOST: "0.0.0.0"
             IMMICH_PORT: "2283"
             IMMICH_MEDIA_LOCATION: "~/.immich/library"
@@ -59,8 +59,8 @@ immich:
             # The release the artifacts are built from. It lives in var: (not env:)
             # because `download:` templates substitute against var: only; var: values are
             # emitted as ENV as well, so the build steps see it too.
-            IMMICH_VERSION: "v3.4.1"
-            # Every toolchain version below is the one immich v3.4.1 itself pins
+            IMMICH_VERSION: "v3.4.2"
+            # Every toolchain version below is the one immich v3.4.2 itself pins
             # (root package.json packageManager, .nvmrc, mise.toml), so a version bump
             # here is a coordinated read of those three files — not a guess:
             #   node 24.22.1 (nodejs candy supplies the distro node) / pnpm 12.15.0
@@ -78,7 +78,7 @@ immich:
             BINARYEN_VERSION: "124"
             UV_VERSION: "0.8.15"
             # Reverse-geocoding data: the geoJSON is fetched from a TAG, never master,
-            # so the artifact set is reproducible (immich v3.4.1 ships v5.1.2).
+            # so the artifact set is reproducible (immich v3.4.2 ships v5.1.2).
             NATURAL_EARTH_TAG: "v5.1.2"
         distro:
             arch:
@@ -185,7 +185,7 @@ immich:
               scope: system
         plan:
             # --- toolchain -----------------------------------------------------------------
-            - run: install the pnpm version immich v3.4.1 pins, beside the image's own pnpm
+            - run: install the pnpm version immich v3.4.2 pins, beside the image's own pnpm
               run_as: root
               command: |
                 set -o pipefail
@@ -610,8 +610,11 @@ immich-skill:
         family: immich
         owner: immich
         description: |-
-            Immich photo management server on port 2283. Includes PostgreSQL, Redis,
-            and non-free codec support via RPM Fusion. CPU-only (no ML).
+            Immich photo management server on port 2283 with its machine-learning
+            backend (face recognition, smart search, OCR) in the same image on port 3003,
+            PostgreSQL, VectorChord, Redis and non-free codec support. One image, no
+            separate immich-ml variant; ML is enabled by default and uses ONNX Runtime's
+            CUDA execution provider.
             MUST be invoked before building, deploying, configuring, or troubleshooting the immich box.
 
 # ---------------------------------------------------------------------------

@@ -16,8 +16,8 @@ and the machine-learning backend (face recognition, smart search, OCR).
 
 | Property | Value |
 |----------|-------|
-| Image file | `distro-cachyos/box/immich/charly.yml` |
-| Base | `nvidia` — the CachyOS GPU base (`cachyos` + agent-forwarding + `nvidia` + `cuda`) |
+| Image file | `distro-cachyos/box/immich-cdi/charly.yml` |
+| Base | `podcdi.pod-cdi` — the CDI pod base (`cachyos` + agent-forwarding + `layer-cdi` → `layer-cuda`) |
 | Candies | agent-forwarding, nodejs, supervisord, postgresql, vectorchord, redis, immich, dbus |
 | Build formats | `pac`, `aur` (pgvector is AUR-only on Arch) |
 | Platforms | linux/amd64 |
@@ -48,18 +48,19 @@ port 3003, and the server reaches it on `http://127.0.0.1:3003`.
 ## Quick Start
 
 ```bash
-charly box build immich
-charly config immich
-charly start immich
+charly box build immich-cdi
+charly config immich-cdi
+charly start immich-cdi
 # Open http://localhost:2283
 ```
 
 ## GPU
 
-The image is built on the CachyOS GPU base and its ML backend ships ONNX Runtime's
-CUDA execution provider. GPU access is not declared per image: the deploy injects
-`--device nvidia.com/gpu=all` automatically when the host has an NVIDIA device, so the
-same image runs on CPU-only hosts with the ML backend falling back to CPU.
+The image is built on the `podcdi.pod-cdi` base, so it bakes no GPU driver user-space:
+the driver is injected from the host's CDI spec. The ML backend ships ONNX Runtime's
+CUDA execution provider, and the deploy injects `--device nvidia.com/gpu=all`
+automatically when the host has an NVIDIA device. This is the GPU box; CPU-only hosts
+are not a supported variant.
 
 ## Key Candies
 
@@ -68,15 +69,15 @@ same image runs on CPU-only hosts with the ML backend falling back to CPU.
 - `layer-vectorchord` — VectorChord for smart search
 - `pod-redis` — session/cache backend
 - `layer-ffmpeg` — non-free codec support
-- `layer-nvidia` / `layer-cuda` — the GPU stack (via the `nvidia` base)
+- `layer-cdi` / `layer-cuda` — the pod GPU contract (via the `podcdi.pod-cdi` base)
 
 ## Verification
 
-- `charly check box immich` — the candy's own build-scope checks (server bundle, web
+- `charly check box immich-cdi` — the candy's own build-scope checks (server bundle, web
   build, WASM plugin, geodata set, both wrappers, the ML venv and its CUDA provider)
-- After `charly start immich`:
-  - `charly status immich` — container running
-  - `charly service status immich` — `immich-db-init`, `immich-server`, `immich-ml` RUNNING
+- After `charly start immich-cdi`:
+  - `charly status immich-cdi` — container running
+  - `charly service status immich-cdi` — `immich-db-init`, `immich-server`, `immich-ml` RUNNING
   - `curl -s http://localhost:2283/api/server/ping` — `{"res":"pong"}`
   - `curl -s http://localhost:3003/ping` — `pong`
 
@@ -90,5 +91,5 @@ launching Explore agents.
 
 - `/charly-immich:immich-layer` — the candy itself (build recipe, env, services)
 - `/charly-image:image` — image family umbrella (composition, build/validate/inspect)
-- `/charly-distros:cachyos` — the CachyOS base family and the `nvidia` GPU base
+- `/charly-distros:cachyos` — the CachyOS base family; `pod-cdi` is the CDI pod base
 - `/charly-build:build` — the embedded build vocabulary (distros, builders, init-systems)

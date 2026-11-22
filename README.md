@@ -6,7 +6,7 @@ photo and video management server.
 
 ## What it provides
 
-Builds Immich **v3.4.1** from source into one image: the Node server into
+Builds Immich **v3.4.2** from source into one image: the Node server into
 `/opt/immich/server`, the web UI into `/build/www`, the plugin-core WASM plugin and
 the reverse-geocoding geodata into `/build/`, plus the Python machine-learning
 virtualenv (ONNX Runtime with the CUDA execution provider) that serves face
@@ -61,7 +61,7 @@ charly secrets set charly/api-key/immich <key>
 
 - Owning skills: `/charly-immich:immich-layer` — this candy (build recipe, env,
   services, volumes); `/charly-immich:immich` — the image that composes it
-  (`distro-cachyos/box/immich`, CachyOS GPU base) and its verification.
+  (`distro-cachyos/box/immich-cdi`, CachyOS GPU base) and its verification.
 - `/charly-infrastructure:postgresql` / `/charly-infrastructure:vectorchord` /
   `/charly-infrastructure:redis` — the backing data services.
 - [`opencharly/charly`](https://github.com/opencharly/charly) — the charly CLI and image builder

@@ -23,15 +23,15 @@ description: 'Immich photo and video management server on port 2283 with its ML 
 
 | Variable | Value |
 |----------|-------|
-| `IMMICH_VERSION` (var) | `v3.4.1` |
-| `IMMICH_SOURCE_REF` | `v3.4.1` (what `start.sh`-style wrappers log) |
+| `IMMICH_VERSION` (var) | `v3.4.2` |
+| `IMMICH_SOURCE_REF` | `v3.4.2` (what `start.sh`-style wrappers log) |
 | `IMMICH_HOST` / `IMMICH_PORT` | `0.0.0.0` / `2283` |
 | `IMMICH_MEDIA_LOCATION` | `~/.immich/library` |
 | `IMMICH_MACHINE_LEARNING_ENABLED` | `true` |
 | `IMMICH_MACHINE_LEARNING_URL` | `http://127.0.0.1:3003` |
 | `MACHINE_LEARNING_HOST` / `_PORT` / `_WORKERS` / `_WORKER_TIMEOUT` | `0.0.0.0` / `3003` / `1` / `120` |
 | `TRANSFORMERS_CACHE` | `~/.immich/models` |
-| `DB_HOSTNAME` / `DB_DATABASE_NAME` | `127.0.0.1` / `immich` |
+| `DB_HOSTNAME` / `DB_DATABASE_NAME` | `~/.postgresql` (socket dir) / `immich` |
 | `DB_USERNAME` / `DB_PASSWORD` | `immich` / `immich` |
 | `REDIS_HOSTNAME` / `REDIS_PORT` | `127.0.0.1` / `6379` |
 | `NODE_ENV` | `production` |
@@ -49,9 +49,9 @@ The candy is multi-distro — image libraries are declared per distro:
 
 **Note:** FFmpeg is provided via the `ffmpeg` dependency candy rather than installed directly.
 
-## Build Process (v3.4.1 from-source recipe)
+## Build Process (v3.4.2 from-source recipe)
 
-Every version below is what Immich v3.4.1 itself pins (root `package.json`
+Every version below is what Immich v3.4.2 itself pins (root `package.json`
 `packageManager`, `.nvmrc`, `mise.toml`): pnpm `12.15.0`, extism-js `v1.7.0`
 (js-pdk), binaryen `version_124`, uv `0.8.15`, and the ML venv's Python `3.13`.
 
@@ -123,7 +123,7 @@ immich:
 
 ## Used In Boxes
 
-- `distro-cachyos/box/immich` (CachyOS GPU base) — the single Immich image; the ML
+- `distro-cachyos/box/immich-cdi` (CachyOS CDI pod base) — the single Immich image; the ML
   backend it needs is the supervised `immich-ml` service this candy declares.
 
 ## Related Candies
