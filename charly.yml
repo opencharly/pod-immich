@@ -609,13 +609,6 @@ immich-skill:
         name: immich
         family: immich
         owner: immich
-        description: |-
-            Immich photo management server on port 2283 with its machine-learning
-            backend (face recognition, smart search, OCR) in the same image on port 3003,
-            PostgreSQL, VectorChord, Redis and non-free codec support. One image, no
-            separate immich-ml variant; ML is enabled by default and uses ONNX Runtime's
-            CUDA execution provider.
-            MUST be invoked before building, deploying, configuring, or troubleshooting the immich box.
 
 # ---------------------------------------------------------------------------
 # The verb/schema skills this repo's own candy owns — routing only.
