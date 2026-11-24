@@ -35,9 +35,12 @@ Canonical files:
   must parse and validate at the installed charly.
 - The live R10 witness is a composing box's `check` bed; the candy's own `check:`
   steps assert the built server bundle, the two wrappers, the `libvips` image
-  library, the extension-seeding init SQL, the mounted library dir, the running
-  `immich-server` service, and the live `/api/server/ping` `200` returning
-  `pong`.
+  library, the extension-seeding init SQL, the volume wiring (`HF_HOME` on the
+  models volume, no retired cache variable), the running `immich-server` and
+  `immich-ml` services, and the live `/api/server/ping` `200` returning `pong`.
+  No `check:` step asserts the library or external directories — their
+  correctness is the volume declaration's, so a path change is proved by the
+  composing box's bed.
 - The merge gate is the **org-wide** `charly/pr-validator` (required check
   `validate / validate`, defined in `opencharly/.github`); this repo has **no**
   per-repo candy gate. Its only workflow file is
