@@ -38,7 +38,12 @@ immich:
             MACHINE_LEARNING_PORT: "3003"
             MACHINE_LEARNING_WORKERS: "1"
             MACHINE_LEARNING_WORKER_TIMEOUT: "120"
-            TRANSFORMERS_CACHE: "~/.immich/models"
+            # Where the ML backend caches the models it downloads (CLIP, face, OCR). The venv
+            # ships huggingface_hub, which honours HF_HOME; the older TRANSFORMERS_CACHE name is
+            # read by NOTHING in Immich v3.4.2 — measured in this image: 9 HF_HOME references in
+            # the venv, 0 for TRANSFORMERS_CACHE. Setting the older name meant the models volume
+            # was never written and every rebuild re-downloaded into the container layer.
+            HF_HOME: "~/.immich/models"
             SHARP_FORCE_GLOBAL_LIBVIPS: "1"
             POSTGRES_USER: "immich"
             POSTGRES_DB: "immich"
@@ -135,13 +140,18 @@ immich:
         volume:
             - name: library
               path: "~/.immich/library"
-            - name: cache
-              path: "~/.immich/cache"
+            # Operator staging directory for bulk imports run inside the container. Immich has no
+            # environment variable for it (import paths are per-job), so nothing writes here on
+            # its own — it exists so an operator can stage files and hand the path to a job.
             - name: import
               path: "~/.immich/import"
+            # External library root. Immich learns about it from a library record's importPaths
+            # (Admin -> External Libraries, or POST /api/libraries), never from configuration:
+            # without that record this directory is merely mounted.
             - name: external
               path: "~/.immich/external"
-            # The ML models the backend downloads on first use (CLIP, face, OCR).
+            # The ML models the backend downloads on first use (CLIP, face, OCR). Wired through
+            # HF_HOME above; without that variable nothing writes here.
             - name: models
               path: "~/.immich/models"
         secret:
@@ -441,9 +451,6 @@ immich:
             - run: create the per-user media and model directories
               mkdir: "${HOME}/.immich/library"
               run_as: "${USER}"
-            - run: create the per-user thumbnail cache directory
-              mkdir: "${HOME}/.immich/cache"
-              run_as: "${USER}"
             - run: create the per-user upload staging directory
               mkdir: "${HOME}/.immich/import"
               run_as: "${USER}"
@@ -552,6 +559,22 @@ immich:
                 - contains: CUDAExecutionProvider
               command:
                 command: /opt/immich/ml-run.sh /opt/immich/machine-learning/.venv/bin/python -c 'import onnxruntime; print("\n".join(onnxruntime.get_available_providers()))'
+                in_container: true
+            # The models volume is wired ONLY through HF_HOME (measured in this image:
+            # huggingface_hub honours HF_HOME, and nothing in v3.4.2 reads TRANSFORMERS_CACHE).
+            # This arm is RED on the retired variable and on a missing cache root — the state
+            # that left the models volume empty and re-downloaded into the container layer on
+            # every rebuild. No braced reference in the text on purpose: the runner CLAIMS one,
+            # and an unresolvable one SKIPS the step instead of failing it.
+            - check: the ML model cache is wired to the models volume through HF_HOME only
+              id: immich-ml-cache-home
+              exit_status: 0
+              command:
+                command: |
+                  set -eu
+                  test "$(printenv HF_HOME)" = /home/user/.immich/models
+                  test -d /home/user/.immich/models
+                  test -z "$(printenv TRANSFORMERS_CACHE)"
                 in_container: true
             - check: immich-db-init is declared as a one-shot service that must exit 0
               id: immich-db-init-declared
