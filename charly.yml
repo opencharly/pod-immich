@@ -23,6 +23,13 @@ immich:
             - '@github.com/opencharly/pod-redis:v2026.272.0226'
             - '@github.com/opencharly/layer-ffmpeg:v2026.272.0056'
         env:
+            # A deploy that carries a host-owned volume (bind or encrypted) runs the
+            # container as root under `userns=host` — a CDI GPU device cannot run under
+            # keep-id — where the runtime HOME is /root, while every volume this candy
+            # declares is mounted under the image user's home. The startup wrappers
+            # resolve `${HOME:-/home/user}`, so without this pin a bound deployment would
+            # look for the database socket and the ML state in /root.
+            HOME: "/home/user"
             # start.sh logs this; it is the tag the artifacts were built from.
             IMMICH_SOURCE_REF: "v3.4.2"
             IMMICH_HOST: "0.0.0.0"

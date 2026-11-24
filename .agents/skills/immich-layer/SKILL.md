@@ -23,6 +23,7 @@ description: 'Immich photo and video management server on port 2283 with its ML 
 
 | Variable | Value |
 |----------|-------|
+| `HOME` | `/home/user` — pinned, because a deploy carrying a host-owned volume (bind or encrypted) runs as root under `userns=host` (a CDI GPU device cannot run under keep-id), where the runtime home would otherwise be `/root` |
 | `IMMICH_VERSION` (var) | `v3.4.2` |
 | `IMMICH_SOURCE_REF` | `v3.4.2` (what `start.sh`-style wrappers log) |
 | `IMMICH_HOST` / `IMMICH_PORT` | `0.0.0.0` / `2283` |
