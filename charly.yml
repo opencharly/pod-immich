@@ -17,11 +17,11 @@ immich:
             CUDA execution provider in the ML venv, and live /api/server/ping on 2283
             plus /ping on 3003.
         require:
-            - '@github.com/opencharly/layer-supervisord:v2026.271.1817'
-            - '@github.com/opencharly/layer-nodejs:v2026.272.0322'
-            - '@github.com/opencharly/pod-postgresql:v2026.272.0233'
-            - '@github.com/opencharly/pod-redis:v2026.272.0226'
-            - '@github.com/opencharly/layer-ffmpeg:v2026.272.0056'
+            - '@github.com/opencharly/layer-supervisord:v2026.314.0710'
+            - '@github.com/opencharly/layer-nodejs:v2026.314.0707'
+            - '@github.com/opencharly/pod-postgresql:v2026.327.1758'
+            - '@github.com/opencharly/pod-redis:v2026.327.1753'
+            - '@github.com/opencharly/layer-ffmpeg:v2026.314.0706'
         env:
             # start.sh logs this; it is the tag the artifacts were built from.
             IMMICH_SOURCE_REF: "v3.4.2"
