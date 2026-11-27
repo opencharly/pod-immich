@@ -8,6 +8,11 @@ Canonical files:
 - `charly.yml` — the `immich:` candy entity (description, `require`, `env`,
   `distro`, `port`, `env_provide`, `env_accept`, `secret_accept`, `volume`,
   `secret`, `route`, `service`, `plan`) and its `skill:` entity.
+- `box/immich-cdi/charly.yml` — the `immich-cdi` IMAGE: `podcdi.pod-cdi` base composing the LOCAL
+  `immich` candy (its `require:` brings supervisord/nodejs/postgres/redis/ffmpeg at ITS tags),
+  `layer-vectorchord` (a deliberate composition, not a candy requirement) and `pod-dbus`.
+- `check-cachyos-immich-pod` (this repo's `charly.yml`) — the disposable R10 bed for that image,
+  with the post-start readiness probe. It lives HERE with the box it tests.
 - `.github/workflows/tag-on-merge.yml` — CalVer tag + `CHANGELOG/` on merge.
 - `CHANGELOG/` — per-CalVer history.
 - `README.md` — user overview only; never agent guidance.

@@ -1,0 +1,26 @@
+immich-cdi:
+    candy:
+        # One image for the whole Immich stack: server + web + ML backend, on the CachyOS GPU
+        # base (cachyos + nvidia + cdi + cuda). The ML backend runs in-process on port 3003 —
+        # there is no separate immich-ml image any more (opencharly/pod-immich#13; #12 is the
+        # closed attempt with the same title). The `-cdi` suffix is the GPU-requiring marker
+        # this org adopted in distro-cachyos#196: the base composes layer-cdi, whose build-time
+        # assertions refuse a baked driver user-space and whose runtime probe checks the
+        # injected host driver.
+        #
+        # The box composes the LOCAL `immich` candy, not a pinned copy of it: a box in this
+        # repo proves this tree. The candy's own `require:` brings supervisord, nodejs,
+        # postgresql, redis and ffmpeg at ITS tags — the older explicit pins the distro box
+        # carried were drift (the "referenced at multiple versions" notice), not composition.
+        base: podcdi.pod-cdi
+        build:
+            - pac
+        platform:
+            - linux/amd64
+        candy:
+            - immich
+            # Deliberate composition, not a candy requirement: the immich candy detects
+            # VectorChord conditionally, and this image chooses WITH it (the pgvector/
+            # vectorchord search path).
+            - '@github.com/opencharly/layer-vectorchord:v2026.273.1836'
+            - '@github.com/opencharly/pod-dbus:v2026.274.0648'
